@@ -2,6 +2,8 @@
 
 # Download data from: https://neo.sci.gsfc.nasa.gov/view.php?datasetId=MOD_NDVI_M
 
+# python3 delta.py -grad "#FFFFFF,#FFFFFF"
+
 import argparse
 import gzip
 import numpy as np
@@ -17,11 +19,11 @@ from lib.math_utils import *
 parser = argparse.ArgumentParser()
 parser.add_argument('-before', dest="FILE_BEFORE", default="data/MOD_NDVI_M_2000-06-01_rgb_3600x1800.CSV.gz", help="Csv file of data before")
 parser.add_argument('-after', dest="FILE_AFTER", default="data/MOD_NDVI_M_2018-06-01_rgb_3600x1800.CSV.gz", help="Csv file of data after")
-parser.add_argument('-grad', dest="COLOR_GRADIENT", default="#CE2929,#1D9831", help="Comma separated color gradient")
-parser.add_argument('-range', dest="DATA_RANGE", default="-0.3,0.3", help="Expected data range of delta. Execute with -probe to get a sense of what this should be")
+parser.add_argument('-grad', dest="COLOR_GRADIENT", default="#531414,#1D9831", help="Comma separated color gradient")
+parser.add_argument('-range', dest="DATA_RANGE", default="-0.33,0.33", help="Expected data range of delta. Execute with -probe to get a sense of what this should be")
 parser.add_argument('-dc', dest="DEFAULT_COLOR", default="#000000", help="Default color")
 parser.add_argument('-fill', dest="FILL_VALUE", default=99999.0, type=float, help="Fill value")
-parser.add_argument('-out', dest="OUTPUT_FILE", default="output/mod_ndvi_200006-201806.png", help="Output file")
+parser.add_argument('-out', dest="OUTPUT_FILE", default="output/mod_ndvi_200006-201806%s.png", help="Output file")
 parser.add_argument('-probe', dest="PROBE", action="store_true", help="Just spit out debug info?")
 a = parser.parse_args()
 
@@ -65,23 +67,36 @@ if a.PROBE:
 
 dataH, dataW = deltaValues.shape
 pixelData = np.zeros((dataH, dataW, 4), dtype=np.uint8)
+pixelDataGain = np.zeros((dataH, dataW, 4), dtype=np.uint8)
+pixelDataLoss = np.zeros((dataH, dataW, 4), dtype=np.uint8)
 
 total = dataH * dataW
 print("Converting data to colors...")
 for i in range(dataH):
     for j in range(dataW):
         delta = deltaValues[i, j]
-        color = [0,0,0,0]
+        color = gainColor = lossColor = [0,0,0,0]
         if not ma.is_masked(delta):
             nvalue = norm(delta, DATA_RANGE, limit=True)
             color = getColor(COLOR_GRADIENT, nvalue)
+            if nvalue > 0.5:
+                gainColor = color
+            else:
+                lossColor = color
         pixelData[i, j] = np.array(color, dtype=np.uint8)
+        pixelDataGain[i, j] = np.array(gainColor, dtype=np.uint8)
+        pixelDataLoss[i, j] = np.array(lossColor, dtype=np.uint8)
         printProgress(i*dataW+j, total)
 
-print("Writing data to image...")
-dataIm = Image.fromarray(pixelData, mode="RGBA")
-baseIm = Image.new(mode="RGBA", size=(dataW, dataH), color=(0, 0, 0, 255))
-baseIm = Image.alpha_composite(baseIm, dataIm)
-baseIm = baseIm.convert("RGB")
-baseIm.save(a.OUTPUT_FILE)
-print("Saved %s" % a.OUTPUT_FILE)
+def makeImage(filename, pixelData):
+    print("Writing data to image...")
+    dataIm = Image.fromarray(pixelData, mode="RGBA")
+    baseIm = Image.new(mode="RGBA", size=dataIm.size, color=(0, 0, 0, 255))
+    baseIm = Image.alpha_composite(baseIm, dataIm)
+    baseIm = baseIm.convert("RGB")
+    baseIm.save(filename)
+    print("Saved %s" % filename)
+
+makeImage(a.OUTPUT_FILE % "", pixelData)
+makeImage(a.OUTPUT_FILE % "_gain", pixelDataGain)
+makeImage(a.OUTPUT_FILE % "_loss", pixelDataLoss)
